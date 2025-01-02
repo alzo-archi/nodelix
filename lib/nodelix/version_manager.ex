@@ -55,15 +55,19 @@ defmodule Nodelix.VersionManager do
 
   @doc """
   Installs the specified Node.js version.
+  By default, it only attempts the download once, because the exponential backoff
+  makes the process sleep to preserve the current synchronous API.
+  Setting max_attempts to an integer greater than 1 will make the process sleep for
+  1500ms * attempt_n^2, so : 1.5s, 6s, 13.5s, 24s...
   """
-  @spec install(String.t(), String.t()) :: :ok
-  def install(version, archive_base_url \\ @default_archive_base_url)
+  @spec install(String.t(), String.t(), integer()) :: :ok
+  def install(version, archive_base_url \\ @default_archive_base_url, max_attempts \\ 1)
       when is_binary(version) and is_binary(archive_base_url) do
     %{nodelix: base_path} = paths(version)
 
     File.mkdir_p!(base_path)
 
-    fetch_archive(version, archive_base_url)
+    :ok = fetch_archive(version, archive_base_url, max_attempts)
     fetch_checksums(version)
     verify_archive!(version)
     unpack_archive(version)
@@ -184,13 +188,31 @@ defmodule Nodelix.VersionManager do
     computed_checksum == checksum or raise "invalid checksum"
   end
 
-  defp fetch_archive(version, archive_base_url) do
+  defp fetch_archive(_version, _url, max_retries, tries) when tries > max_retries do
+    {:error, :max_retries_exceeded}
+  end
+
+  defp fetch_archive(version, archive_base_url, max_retries, tries) do
     archive_url = get_url(archive_base_url, version)
     %{archive: archive_path} = paths(version)
 
     Logger.debug("Downloading Node.js from #{archive_url}")
-    binary = HttpUtils.fetch_body!(archive_url)
-    File.write!(archive_path, binary, [:binary])
+
+    try do
+      binary = HttpUtils.fetch_body!(archive_url)
+      File.write!(archive_path, binary, [:binary])
+      :ok
+    rescue
+      _ ->
+        case max_retries do
+          1 -> :error
+          _ -> Process.sleep(1_500 * :math.pow(2, tries))
+        end
+    end
+  end
+
+  defp fetch_archive(version, archive_base_url, max_retries) do
+    fetch_archive(version, archive_base_url, max_retries, 1)
   end
 
   defp fetch_checksums(version) do
