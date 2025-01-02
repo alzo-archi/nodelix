@@ -85,18 +85,15 @@ defmodule Nodelix do
       """
   end
 
-  @doc """
-  Runs the given command with `args`.
-
-  The given args will be appended to the configured args.
-  The task output will be streamed directly to stdio. It
-  returns the status of the underlying call.
-  """
-  def run(version, profile, extra_args \\ []) when is_atom(profile) and is_list(extra_args) do
-    config = config_for!(profile)
+  def build_args!(config, extra_args) do
     args = (config[:args] || []) ++ extra_args
-
     if length(args) == 0, do: raise(ArgumentError, "No argument provided.")
+    args
+  end
+
+  def build_args_and_opts(profile, extra_args) do
+    config = config_for!(profile)
+    args = build_args!(config, extra_args)
 
     env = Keyword.get(config, :env, %{})
 
@@ -107,16 +104,38 @@ defmodule Nodelix do
       stderr_to_stdout: true
     ]
 
+    {args, opts}
+  end
+
+  @doc """
+  Runs the given command with `args`.
+
+  The given args will be appended to the configured args.
+  The task output will be streamed directly to stdio. It
+  returns the status of the underlying call.
+  """
+  def run(version, profile, extra_args \\ []) when is_atom(profile) and is_list(extra_args) do
+    {args, opts} =
+      build_args_and_opts(profile, extra_args)
+
     VersionManager.bin_path(:node, version)
     |> System.cmd(args, opts)
     |> elem(1)
   end
 
-  @doc """
-  Same as `run/3` but using the latest known LTS version at the time of publishing.
-  """
-  def run_lts(profile, extra_args \\ []) when is_atom(profile) and is_list(extra_args) do
-    run(VersionManager.latest_lts_version(), profile, extra_args)
+  def run_standalone(version, script, options \\ []) do
+    {args, opts} =
+      build_args_and_opts(:standalone, [script])
+
+    {_, res} =
+      VersionManager.bin_path(:node, version)
+      |> System.cmd(args, opts)
+
+    if Keyword.get(options, :erase) do
+      File.rm!(script)
+    end
+
+    res
   end
 
   @doc """
@@ -131,13 +150,5 @@ defmodule Nodelix do
     end
 
     run(version, profile, args)
-  end
-
-  @doc """
-  Same as `install_and_run/3` but using the latest known LTS version at the time of publishing.
-  """
-  def install_and_run_lts(profile, extra_args \\ [])
-      when is_atom(profile) and is_list(extra_args) do
-    install_and_run(VersionManager.latest_lts_version(), profile, extra_args)
   end
 end
