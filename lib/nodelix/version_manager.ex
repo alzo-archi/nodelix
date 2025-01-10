@@ -186,12 +186,12 @@ defmodule Nodelix.VersionManager do
     computed_checksum == checksum or raise "invalid checksum"
   end
 
-  def fetch_archive(version, _url, max_retries, tries, _fetch_fun) when tries >= max_retries do
+  defp fetch_archive(version, _url, max_retries, tries, _fetch_fun) when tries >= max_retries do
     Logger.debug("[Nodelix] Fetching node #{version}  failed after #{tries} attempts.")
     {:error, :max_retries_exceeded}
   end
 
-  def fetch_archive(version, archive_base_url, max_retries, tries, fetch_fun) do
+  defp fetch_archive(version, archive_base_url, max_retries, tries, fetch_fun) do
     archive_url = get_url(archive_base_url, version)
     %{archive: archive_path} = paths(version)
 
